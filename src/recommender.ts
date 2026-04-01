@@ -84,10 +84,11 @@ function recommendDuplicateFiles(waste: WasteItem[]): Recommendation[] {
     .sort((a, b) => b.estimated_tokens - a.estimated_tokens)
     .slice(0, 5)
     .map((d) => {
-      const match = d.description.match(/"([^"]+)" read (\d+) times \(earlier reads at ([^)]+?) are/);
-      const filename = match?.[1] ?? 'file';
-      const count = match?.[2] ?? '?';
-      const locations = match?.[3] ?? '';
+      const nameMatch = d.description.match(/"([^"]+)" read (\d+) times/);
+      const locsMatch = d.description.match(/reads at ([^)]+?) are/);
+      const filename = nameMatch?.[1] ?? 'file';
+      const count = nameMatch?.[2] ?? '?';
+      const locations = locsMatch?.[1] ?? '';
 
       return {
         priority: 2 as const,
@@ -543,11 +544,12 @@ function extractDuplicateFiles(waste: WasteItem[]): DupeFileInfo[] {
     .filter((w) => w.type === 'duplicate_read')
     .sort((a, b) => b.estimated_tokens - a.estimated_tokens)
     .map((w) => {
-      const match = w.description.match(/"([^"]+)" read (\d+) times \(earlier reads at ([^)]+?) are/);
+      const nameMatch = w.description.match(/"([^"]+)" read (\d+) times/);
+      const locsMatch = w.description.match(/reads at ([^)]+?) are/);
       return {
-        filename: match?.[1] ?? 'unknown',
-        readCount: parseInt(match?.[2] ?? '0', 10),
-        earlierReads: match?.[3] ?? '',
+        filename: nameMatch?.[1] ?? 'unknown',
+        readCount: parseInt(nameMatch?.[2] ?? '0', 10),
+        earlierReads: locsMatch?.[1] ?? '',
         wastedTokens: w.estimated_tokens,
       };
     });

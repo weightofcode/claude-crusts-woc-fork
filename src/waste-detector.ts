@@ -144,6 +144,50 @@ function extractFilename(filePath: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: extract file edit operations (Write/Edit tool_use)
+// ---------------------------------------------------------------------------
+
+/** Info about a file edit (Write or Edit tool_use) */
+interface FileEditInfo {
+  filePath: string;
+  messageIndex: number;
+}
+
+/**
+ * Extract file write/edit operations from session messages.
+ *
+ * Scans for Write/Edit tool_use blocks and extracts the target file path
+ * and message index. Used to determine whether a file was modified between
+ * consecutive reads (which makes a re-read valid, not waste).
+ *
+ * @param messages - All session messages
+ * @returns Array of file edit info objects
+ */
+function extractFileEdits(messages: SessionMessage[]): FileEditInfo[] {
+  const edits: FileEditInfo[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!;
+    if (!Array.isArray(msg.message?.content)) continue;
+
+    for (const block of msg.message.content) {
+      if (block.type !== 'tool_use') continue;
+      if (block.name !== 'Write' && block.name !== 'Edit'
+        && block.name !== 'FileWriteTool' && block.name !== 'FileEditTool'
+        && block.name !== 'NotebookEdit') continue;
+
+      const filePath = block.input?.file_path as string | undefined
+        ?? block.input?.path as string | undefined;
+      if (!filePath) continue;
+
+      edits.push({ filePath: filePath.replace(/\\/g, '/').toLowerCase(), messageIndex: i });
+    }
+  }
+
+  return edits;
+}
+
+// ---------------------------------------------------------------------------
 // Individual waste detectors
 // ---------------------------------------------------------------------------
 
@@ -187,8 +231,12 @@ function detectStaleReads(
 }
 
 /**
- * Detect duplicate file reads — same file path read multiple times.
- * All but the most recent read are flagged as waste.
+ * Detect duplicate file reads — same file path read multiple times
+ * WITHOUT an intervening edit (Write/Edit) between consecutive reads.
+ *
+ * If a file was edited between two reads, the second read is valid
+ * (reading updated content). Only reads with no intervening edit are
+ * flagged as waste.
  *
  * @param messages - All session messages
  * @param classified - Classified message data
@@ -200,6 +248,7 @@ function detectDuplicateReads(
 ): WasteItem[] {
   const items: WasteItem[] = [];
   const reads = extractFileReads(messages, classified);
+  const edits = extractFileEdits(messages);
 
   // Group reads by normalized file path
   const byPath = new Map<string, FileReadInfo[]>();
@@ -213,24 +262,58 @@ function detectDuplicateReads(
     }
   }
 
-  for (const [, pathReads] of byPath) {
+  for (const [normalizedPath, pathReads] of byPath) {
     if (pathReads.length < 2) continue;
 
-    // Sort by message index, flag all but the last as waste
+    // Sort by message index
     pathReads.sort((a, b) => a.messageIndex - b.messageIndex);
-    const duplicates = pathReads.slice(0, -1);
-    const wasteTokens = duplicates.reduce((sum, r) => sum + r.estimatedTokens, 0);
+
+    // Get all edits to this file, sorted by message index
+    const fileEdits = edits
+      .filter((e) => e.filePath === normalizedPath)
+      .sort((a, b) => a.messageIndex - b.messageIndex);
+
+    // Check each consecutive pair of reads for intervening edits
+    const redundantReads: FileReadInfo[] = [];
+    for (let i = 0; i < pathReads.length - 1; i++) {
+      const thisRead = pathReads[i]!;
+      const nextRead = pathReads[i + 1]!;
+
+      // Was there a Write/Edit between this read and the next?
+      const hasInterveningEdit = fileEdits.some(
+        (e) => e.messageIndex > thisRead.messageIndex && e.messageIndex < nextRead.messageIndex,
+      );
+
+      if (!hasInterveningEdit) {
+        // No edit between reads — the earlier read is waste
+        redundantReads.push(thisRead);
+      }
+    }
+
+    if (redundantReads.length === 0) continue;
+
+    const wasteTokens = redundantReads.reduce((sum, r) => sum + r.estimatedTokens, 0);
     const filename = extractFilename(pathReads[0]!.filePath);
 
     if (wasteTokens > 0) {
-      const ranges = duplicates.map((d) => `#${d.messageIndex + 1}`).join(', ');
+      const totalReads = pathReads.length;
+      const validReReads = totalReads - 1 - redundantReads.length;
+      const ranges = redundantReads.map((d) => `#${d.messageIndex + 1}`).join(', ');
+
+      let desc = `"${filename}" read ${totalReads} times`;
+      if (validReReads > 0) {
+        desc += ` (${validReReads} re-read${validReReads > 1 ? 's' : ''} after edits OK; reads at ${ranges} are redundant)`;
+      } else {
+        desc += ` (earlier reads at ${ranges} are redundant)`;
+      }
+
       items.push({
         type: 'duplicate_read',
         severity: 'medium',
-        description: `"${filename}" read ${pathReads.length} times (earlier reads at ${ranges} are redundant)`,
+        description: desc,
         estimated_tokens: wasteTokens,
         recommendation: `Avoid re-reading files that haven't changed. Consider using /compact to remove stale reads.`,
-        message_range: [duplicates[0]!.messageIndex, duplicates[duplicates.length - 1]!.messageIndex + 1],
+        message_range: [redundantReads[0]!.messageIndex, redundantReads[redundantReads.length - 1]!.messageIndex + 1],
       });
     }
   }
@@ -370,7 +453,7 @@ function detectCacheOverhead(messages: SessionMessage[]): WasteItem[] {
     severity: 'info',
     description: `Cache reads are ${pct}% of total input — system prompt + tool schemas are re-sent every turn`,
     estimated_tokens: 0,
-    recommendation: 'Reduce CLAUDE.md size and disable unused MCP servers to lower per-turn cache cost. This affects quota usage ("$100 feels like $20").',
+    recommendation: 'Reduce CLAUDE.md size and disable unused MCP servers to lower per-turn cache cost. High cache overhead increases per-turn cost.',
   }];
 }
 
