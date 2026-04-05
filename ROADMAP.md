@@ -1,6 +1,6 @@
 # CRUSTS Roadmap
 
-## v0.1.0 (current)
+## v0.1.0
 - [x] CRUSTS 6-category context breakdown (99.4% accuracy)
 - [x] Duplicate file detection with exact counts
 - [x] Unused tool detection (loaded vs invoked)
@@ -10,15 +10,18 @@
 - [x] /context calibration
 - [x] Session timeline view
 
-## v0.2.0 (planned)
-- [ ] Cross-session comparison (claude-crusts compare session1 session2)
+## v0.2.0
+- [x] npm publish pipeline (`npx claude-crusts analyze` works)
+- [x] Cross-session comparison (`claude-crusts compare session1 session2`)
+- [x] Standalone HTML report generation (`claude-crusts report`)
+- [x] Edit-aware waste detection (Write/Edit between reads = valid)
+- [x] Model name and session duration extraction from JSONL
+
+## v0.3.0 (planned)
 - [ ] Trend analysis across sessions ("your last 5 sessions averaged...")
 - [ ] Improved memory file detection
 - [ ] Skills discovery from config
-
-## v0.3.0 (planned)
 - [ ] Watch mode — live updates as session JSONL grows
-- [ ] Export to markdown/JSON report for sharing
 - [ ] "What was lost in compaction" detail view
 
 ## v0.4.0 (future)

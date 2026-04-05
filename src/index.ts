@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * CRUSTS CLI entrypoint.
  *
@@ -7,13 +7,18 @@
  * System, Tools, State & Memory.
  */
 
+import { writeFileSync } from 'fs';
+import { resolve } from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { discoverSessions } from './scanner.ts';
 import { analyzeSession, gatherConfigData } from './analyzer.ts';
 import { setVerbose } from './classifier.ts';
 import { runCalibration, renderCalibrationComparison } from './calibrator.ts';
-import { renderAnalysis, renderTimeline, renderList, renderWaste, renderFix } from './renderer.ts';
+import { compareSessions } from './comparator.ts';
+import { generateSessionReport, generateComparisonReport } from './html-report.ts';
+import { generateSessionReportMd, generateComparisonReportMd } from './md-report.ts';
+import { renderAnalysis, renderTimeline, renderList, renderWaste, renderFix, renderComparison } from './renderer.ts';
 import { generateFixPrompts } from './recommender.ts';
 import type { SessionInfo } from './types.ts';
 
@@ -22,7 +27,7 @@ const program = new Command();
 program
   .name('claude-crusts')
   .description('Break down your Claude Code context window into the 6 CRUSTS categories')
-  .version('0.1.0')
+  .version('0.2.0')
   .option('--path <path>', 'Custom path to JSONL session files')
   .option('--json', 'Output as JSON instead of formatted tables')
   .option('--project <name>', 'Filter by project name')
@@ -181,6 +186,116 @@ program
     }
 
     renderFix(fix, result.sessionId);
+  });
+
+program
+  .command('compare <session-a> <session-b>')
+  .description('Compare two sessions side by side')
+  .action(async (sessionIdA: string, sessionIdB: string, _options: unknown, cmd: Command) => {
+    const globals = cmd.optsWithGlobals();
+
+    const sessionA = resolveSession(sessionIdA, globals.path, globals.project);
+    if (!sessionA) {
+      console.error(chalk.red(`No session found matching: ${sessionIdA}`));
+      return;
+    }
+    const sessionB = resolveSession(sessionIdB, globals.path, globals.project);
+    if (!sessionB) {
+      console.error(chalk.red(`No session found matching: ${sessionIdB}`));
+      return;
+    }
+
+    const [resultA, resultB] = await Promise.all([
+      analyzeSession(sessionA.path, sessionA.id, sessionA.project),
+      analyzeSession(sessionB.path, sessionB.id, sessionB.project),
+    ]);
+
+    if (!resultA) {
+      console.error(chalk.red(`No messages found in session A (${sessionIdA}).`));
+      return;
+    }
+    if (!resultB) {
+      console.error(chalk.red(`No messages found in session B (${sessionIdB}).`));
+      return;
+    }
+
+    const comparison = compareSessions(resultA, resultB);
+
+    if (globals.json) {
+      console.log(JSON.stringify(comparison, null, 2));
+      return;
+    }
+
+    renderComparison(comparison);
+  });
+
+program
+  .command('report [session-id]')
+  .description('Generate a standalone report (HTML or Markdown)')
+  .option('--compare <id>', 'Compare with a second session')
+  .option('--output <path>', 'Custom output file path')
+  .option('--format <fmt>', 'Output format: html or md (default: html)', 'html')
+  .action(async (sessionId: string | undefined, options: { compare?: string; output?: string; format?: string }, cmd: Command) => {
+    const globals = cmd.optsWithGlobals();
+    const format = (options.format ?? 'html').toLowerCase();
+
+    if (format !== 'html' && format !== 'md') {
+      console.error(chalk.red(`Unknown format: ${format}. Use "html" or "md".`));
+      return;
+    }
+
+    const session = resolveSession(sessionId, globals.path, globals.project);
+    if (!session) return;
+
+    const result = await analyzeSession(session.path, session.id, session.project);
+    if (!result) {
+      console.error(chalk.red('No messages found in session.'));
+      return;
+    }
+
+    let content: string;
+    let defaultName: string;
+
+    if (options.compare) {
+      // Comparison report
+      const sessionB = resolveSession(options.compare, globals.path, globals.project);
+      if (!sessionB) {
+        console.error(chalk.red(`No session found matching: ${options.compare}`));
+        return;
+      }
+      const resultB = await analyzeSession(sessionB.path, sessionB.id, sessionB.project);
+      if (!resultB) {
+        console.error(chalk.red(`No messages found in session B (${options.compare}).`));
+        return;
+      }
+      const comparison = compareSessions(result, resultB);
+
+      if (globals.json) {
+        console.log(JSON.stringify(comparison, null, 2));
+        return;
+      }
+
+      content = format === 'md'
+        ? generateComparisonReportMd(comparison)
+        : generateComparisonReport(comparison);
+      defaultName = `crusts-compare-${session.id.slice(0, 8)}-${sessionB.id.slice(0, 8)}.${format}`;
+    } else {
+      // Single session report
+      if (globals.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      const fix = generateFixPrompts(result.breakdown, result.waste, result.configData);
+      content = format === 'md'
+        ? generateSessionReportMd(result, fix)
+        : generateSessionReport(result, fix);
+      defaultName = `crusts-report-${session.id.slice(0, 8)}.${format}`;
+    }
+
+    const outPath = resolve(options.output ?? defaultName);
+    writeFileSync(outPath, content, 'utf-8');
+    console.log(chalk.green(`\n  Report saved to: ${outPath}\n`));
   });
 
 program

@@ -44,18 +44,16 @@ Fully offline. Zero API calls. Zero token cost.
 ## Installation
 
 ```bash
-# With bun (recommended — matches Claude Code's runtime)
-bun install -g claude-crusts
-
-# Or run directly without installing
-bunx claude-crusts analyze
-
-# With npm
-npm install -g claude-crusts
+# Run directly without installing
 npx claude-crusts analyze
-```
 
-Requires [Bun](https://bun.sh) runtime.
+# Or install globally
+npm install -g claude-crusts
+
+# With bun
+bunx claude-crusts analyze
+bun install -g claude-crusts
+```
 
 ## Quick Start
 
@@ -74,6 +72,12 @@ claude-crusts timeline
 
 # 5. Analyze any past session — Claude Code forgot it, CRUSTS didn't
 claude-crusts analyze <session-id>
+
+# 6. Compare two sessions side by side
+claude-crusts compare <session-a> <session-b>
+
+# 7. Generate a shareable HTML report
+claude-crusts report
 ```
 
 ## Commands
@@ -86,7 +90,6 @@ Full CRUSTS breakdown of a session. Shows token counts per category, waste detec
 claude-crusts analyze              # most recent session
 claude-crusts analyze a1b2c3d4     # by session ID prefix
 claude-crusts analyze --json       # machine-readable output
-claude-crusts analyze --lifetime   # include compacted content
 ```
 
 If no session ID is provided, analyzes the most recent session.
@@ -203,6 +206,36 @@ claude-crusts list
 claude-crusts list --project myapp   # filter by project name
 ```
 
+### `claude-crusts compare <session-a> <session-b>`
+
+Side-by-side comparison of two sessions. Shows per-category token deltas, waste and compaction differences, and auto-generated insights about what changed.
+
+```bash
+claude-crusts compare a1b2c3d4 e5f6a7b8
+claude-crusts compare a1b2c3d4 e5f6a7b8 --json
+```
+
+Insights are rule-based (no LLM): flags tool overhead differences >15%, conversation growth >10%, waste count ratios, compaction mismatches, and overall usage gaps >20%.
+
+### `claude-crusts report [session-id]`
+
+Generate a standalone report file — ready to screenshot, share with teammates, or open in VS Code preview.
+
+```bash
+claude-crusts report                              # most recent session (HTML)
+claude-crusts report a1b2c3d4                     # specific session
+claude-crusts report a1b2c3d4 --format md         # markdown report
+claude-crusts report a1b2c3d4 --compare e5f6a7b8  # comparison report
+claude-crusts report a1b2c3d4 --compare e5f6a7b8 --format md
+claude-crusts report --output my-report.html      # custom output path
+```
+
+Supports two formats via `--format`:
+- **html** (default) — dark theme, stacked bar chart, copy buttons for fix prompts, no external dependencies
+- **md** — standard markdown tables, fenced code blocks, renders in VS Code preview and on GitHub
+
+Default output: `./crusts-report-{prefix}.html` or `./crusts-report-{prefix}.md`.
+
 ### `claude-crusts calibrate`
 
 Cross-reference CRUSTS estimates against Claude Code's `/context` output for ground truth comparison. Run `/context` in Claude Code, then paste the output into `claude-crusts calibrate`.
@@ -219,7 +252,6 @@ claude-crusts calibrate
 --json             Output as JSON instead of formatted tables
 --project <name>   Filter by project name
 --verbose          Show derivation details (system prompt, framing)
---lifetime         Show full session history including compacted content
 ```
 
 ## The CRUSTS Framework
@@ -292,6 +324,8 @@ Claude Code's built-in `/context` command gives you a snapshot of your current c
 | Fix generation | None | Three pasteable prompt blocks (`claude-crusts fix`) |
 | Compaction prediction | Shows autocompact buffer size | Calculates messages until compaction triggers |
 | History | Current snapshot only | Full session timeline with compaction markers |
+| Cross-session | None | Side-by-side comparison with auto-generated insights |
+| Shareable reports | None | Standalone HTML file — screenshot for LinkedIn, share with team |
 | Cost | Free (built-in) | Free (offline, zero API calls) |
 
 CRUSTS doesn't replace `/context` — it complements it. Use `/context` for a quick check, use CRUSTS for deep analysis and actionable fixes.
@@ -417,7 +451,7 @@ Contributions welcome! This project uses [Bun](https://bun.sh) and TypeScript.
 
 ```bash
 # Clone and install
-git clone https://github.com/your-username/claude-crusts.git
+git clone https://github.com/Abinesh-L/claude-crusts.git
 cd claude-crusts
 bun install
 
@@ -434,9 +468,15 @@ The codebase is organized as a pipeline:
 scanner.ts → classifier.ts → waste-detector.ts → recommender.ts → renderer.ts
                 ↑                                                      ↑
             analyzer.ts (orchestrates)                          calibrator.ts
+                                                                comparator.ts
+                                                                html-report.ts
 ```
 
 See [ROADMAP.md](ROADMAP.md) for planned features and contribution opportunities.
+
+## Feedback
+
+Have an idea for a feature? Found a bug? [Open an issue](https://github.com/Abinesh-L/claude-crusts/issues) — feature requests are just as welcome as bug reports. I'm actively developing CRUSTS and prioritize based on what people actually need. Check the [roadmap](ROADMAP.md) for what's planned, or suggest something completely new.
 
 ## License
 

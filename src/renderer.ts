@@ -13,6 +13,7 @@ import type {
   CrustsBucket,
   ClassifiedMessage,
   CompactionEvent,
+  ComparisonResult,
   CrustsCategory,
   DerivedOverhead,
   FixPrompts,
@@ -161,8 +162,8 @@ export function renderAnalysis(
   messageCount: number,
 ): void {
   const hc = healthColor(report.context_health);
-  const model = findModel(breakdown);
-  const duration = findDuration(breakdown);
+  const model = breakdown.model;
+  const duration = formatDuration(breakdown.durationSeconds);
 
   // Determine which view to show primarily
   const hasCompaction = breakdown.compactionEvents.length > 0 && breakdown.currentContext;
@@ -284,24 +285,19 @@ export function renderAnalysis(
 }
 
 /**
- * Find the model name from the breakdown messages.
+ * Format a duration in seconds as a human-readable string.
  *
- * @param breakdown - The CRUSTS breakdown
- * @returns Model name or 'unknown'
+ * @param seconds - Duration in seconds, or null
+ * @returns Formatted string like "2h 15m" or "4m 30s", or null
  */
-function findModel(breakdown: CrustsBreakdown): string {
-  // Model info isn't directly in ClassifiedMessage, return placeholder
-  return 'claude';
-}
-
-/**
- * Estimate session duration from classified messages.
- *
- * @param breakdown - The CRUSTS breakdown
- * @returns Duration string or null
- */
-function findDuration(breakdown: CrustsBreakdown): string | null {
-  return null;
+function formatDuration(seconds: number | null): string | null {
+  if (seconds === null || seconds <= 0) return null;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
 }
 
 // ---------------------------------------------------------------------------
@@ -653,4 +649,95 @@ export function renderFix(fix: FixPrompts, sessionId: string): void {
     console.log(chalk.green('  No fixes needed — session looks clean.'));
     console.log();
   }
+}
+
+// ---------------------------------------------------------------------------
+// renderComparison — side-by-side session comparison
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a comparison between two sessions.
+ *
+ * Shows per-category deltas with bar indicators, waste/compaction
+ * comparison, and auto-generated insights in a box-drawn display.
+ *
+ * @param result - Comparison result from comparator
+ */
+export function renderComparison(result: ComparisonResult): void {
+  const w = 68;
+
+  // Header
+  console.log();
+  console.log(chalk.bold('\u2554' + '\u2550'.repeat(w) + '\u2557'));
+  console.log(chalk.bold('\u2551') + '  CRUSTS Session Comparison' + ' '.repeat(w - 27) + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2551') + chalk.dim(`  A: ${result.sessionA.id.slice(0, 8)} (${result.sessionA.project})`.padEnd(w)) + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2551') + chalk.dim(`  B: ${result.sessionB.id.slice(0, 8)} (${result.sessionB.project})`.padEnd(w)) + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2560' + '\u2550'.repeat(w) + '\u2563'));
+
+  // Category breakdown table header
+  console.log(chalk.bold('\u2551') + ' '.repeat(w) + chalk.bold('\u2551'));
+  const hdr = '  ' + 'Category'.padEnd(16) + 'Session A'.padStart(12) + 'Session B'.padStart(12) + '   Delta'.padEnd(16) + '     ';
+  console.log(chalk.bold('\u2551') + chalk.dim(hdr.padEnd(w)) + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2551') + '  ' + chalk.dim('\u2500'.repeat(w - 4)) + '  ' + chalk.bold('\u2551'));
+
+  // Category rows
+  for (const d of result.categoryDeltas) {
+    const color = CATEGORY_COLOR[d.category];
+    const label = CATEGORY_LABEL[d.category].padEnd(16);
+    const colA = d.tokensA.toLocaleString().padStart(12);
+    const colB = d.tokensB.toLocaleString().padStart(12);
+    const sign = d.delta >= 0 ? '+' : '';
+    const deltaRaw = `${sign}${d.delta.toLocaleString()} (${sign}${d.deltaPercent.toFixed(0)}%)`;
+    const deltaColor = d.delta > 0 ? chalk.red : d.delta < 0 ? chalk.green : chalk.dim;
+    const padding = ' '.repeat(Math.max(0, w - 2 - label.length - colA.length - colB.length - 3 - deltaRaw.length));
+    const row = `  ${color(label)}${colA}${colB}   ${deltaColor(deltaRaw)}${padding}`;
+    console.log(chalk.bold('\u2551') + row + chalk.bold('\u2551'));
+  }
+
+  // Totals
+  console.log(chalk.bold('\u2551') + '  ' + chalk.dim('\u2500'.repeat(w - 4)) + '  ' + chalk.bold('\u2551'));
+  const totalSign = result.totalDelta >= 0 ? '+' : '';
+  const totalDeltaRaw = `${totalSign}${result.totalDelta.toLocaleString()} (${totalSign}${result.totalDeltaPercent.toFixed(0)}%)`;
+  const totalDeltaColor = result.totalDelta > 0 ? chalk.red : result.totalDelta < 0 ? chalk.green : chalk.dim;
+  const totalLabel = 'TOTAL'.padEnd(16);
+  const totalA = result.totalA.toLocaleString().padStart(12);
+  const totalBStr = result.totalB.toLocaleString().padStart(12);
+  const totalPadding = ' '.repeat(Math.max(0, w - 2 - totalLabel.length - totalA.length - totalBStr.length - 3 - totalDeltaRaw.length));
+  const totalLine = `  ${totalLabel}${totalA}${totalBStr}   ${totalDeltaColor(totalDeltaRaw)}${totalPadding}`;
+  console.log(chalk.bold('\u2551') + totalLine + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2551') + ' '.repeat(w) + chalk.bold('\u2551'));
+
+  // Messages
+  const msgLine = `  Messages: A=${result.sessionA.messageCount}  B=${result.sessionB.messageCount}`;
+  console.log(chalk.bold('\u2551') + chalk.dim(msgLine.padEnd(w)) + chalk.bold('\u2551'));
+
+  // Waste comparison
+  console.log(chalk.bold('\u2560' + '\u2550'.repeat(w) + '\u2563'));
+  console.log(chalk.bold('\u2551') + chalk.yellow('  Waste:') + ' '.repeat(w - 8) + chalk.bold('\u2551'));
+  const wasteLineA = `    A: ${result.waste.countA} issue(s), ~${result.waste.totalTokensA.toLocaleString()} tokens`;
+  const wasteLineB = `    B: ${result.waste.countB} issue(s), ~${result.waste.totalTokensB.toLocaleString()} tokens`;
+  console.log(chalk.bold('\u2551') + wasteLineA.padEnd(w) + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2551') + wasteLineB.padEnd(w) + chalk.bold('\u2551'));
+
+  // Compaction comparison
+  const compLine = `  Compactions: A=${result.compaction.countA}  B=${result.compaction.countB}`;
+  console.log(chalk.bold('\u2551') + chalk.dim(compLine.padEnd(w)) + chalk.bold('\u2551'));
+  console.log(chalk.bold('\u2551') + ' '.repeat(w) + chalk.bold('\u2551'));
+
+  // Insights
+  if (result.insights.length > 0) {
+    console.log(chalk.bold('\u2560' + '\u2550'.repeat(w) + '\u2563'));
+    console.log(chalk.bold('\u2551') + chalk.green('  Insights:') + ' '.repeat(w - 11) + chalk.bold('\u2551'));
+    for (const insight of result.insights) {
+      const lines = wrapText(insight, w - 6);
+      for (let i = 0; i < lines.length; i++) {
+        const prefix = i === 0 ? '  \u2022 ' : '    ';
+        console.log(chalk.bold('\u2551') + `${prefix}${lines[i]}`.padEnd(w) + chalk.bold('\u2551'));
+      }
+    }
+    console.log(chalk.bold('\u2551') + ' '.repeat(w) + chalk.bold('\u2551'));
+  }
+
+  console.log(chalk.bold('\u255a' + '\u2550'.repeat(w) + '\u255d'));
+  console.log();
 }

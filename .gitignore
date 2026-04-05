@@ -5,6 +5,10 @@ node_modules/
 out
 dist
 *.tgz
+crusts-report-*.html
+crusts-report-*.md
+crusts-compare-*.html
+crusts-compare-*.md
 
 # code coverage
 coverage
@@ -24,6 +28,7 @@ TOKEN_ESTIMATION_ANALYSIS.md
 VERIFICATION_REPORT.md
 test-clean-session.sh
 README_old.md
+PROJECT_STATUS.md
 
 # dotenv environment variable files
 .env

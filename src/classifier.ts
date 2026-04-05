@@ -983,6 +983,21 @@ export function classifySession(
     };
   }
 
+  // Extract model name from first non-synthetic assistant message
+  const modelMsg = effectiveMessages.find(
+    (m) => m.type === 'assistant' && m.message?.model && m.message.model !== '<synthetic>',
+  );
+  const model = modelMsg?.message?.model ?? 'unknown';
+
+  // Compute session duration from first and last message timestamps
+  let durationSeconds: number | null = null;
+  const firstTs = effectiveMessages[0]?.timestamp;
+  const lastTs = effectiveMessages[effectiveMessages.length - 1]?.timestamp;
+  if (firstTs && lastTs) {
+    const diffMs = new Date(lastTs).getTime() - new Date(firstTs).getTime();
+    if (diffMs > 0) durationSeconds = Math.round(diffMs / 1000);
+  }
+
   return {
     buckets,
     total_tokens: totalTokens,
@@ -991,6 +1006,8 @@ export function classifySession(
     usage_percentage: (totalTokens / CONTEXT_LIMIT) * 100,
     messages: classifiedMessages,
     toolBreakdown,
+    model,
+    durationSeconds,
     compactionEvents,
     currentContext,
     derivedOverhead: {

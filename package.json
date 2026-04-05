@@ -1,21 +1,22 @@
 {
   "name": "claude-crusts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Break down your Claude Code context window into the 6 CRUSTS categories. See what's eating your tokens.",
-  "module": "src/index.ts",
   "type": "module",
   "bin": {
-    "claude-crusts": "src/index.ts"
+    "claude-crusts": "dist/index.js"
   },
   "scripts": {
     "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "bun run typecheck"
+    "prepublishOnly": "bun run typecheck && bun run build"
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "ROADMAP.md"
   ],
   "keywords": [
     "claude-code",
@@ -30,7 +31,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-username/claude-crusts.git"
+    "url": "git+https://github.com/Abinesh-L/claude-crusts.git"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -40,7 +41,6 @@
   "dependencies": {
     "chalk": "^5.6.2",
     "cli-table3": "^0.6.5",
-    "commander": "^14.0.3",
-    "zod": "^3.25.0-beta.20250519T094321"
+    "commander": "^14.0.3"
   }
 }

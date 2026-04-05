@@ -262,6 +262,10 @@ export interface CrustsBreakdown {
   usage_percentage: number;
   messages: ClassifiedMessage[];
   toolBreakdown: ToolBreakdown;
+  /** Model name extracted from first non-synthetic assistant message */
+  model: string;
+  /** Session duration in seconds, or null if timestamps unavailable */
+  durationSeconds: number | null;
   /** Detected compaction events */
   compactionEvents: CompactionEvent[];
   /** If compaction occurred, breakdown of only post-last-compaction context */
@@ -364,6 +368,47 @@ export interface FixPrompts {
   claudeMdSnippet: string | null;
   /** A specific /compact command ready to paste */
   compactCommand: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Compare types
+// ---------------------------------------------------------------------------
+
+/** Per-category delta in a comparison */
+export interface CategoryDelta {
+  category: CrustsCategory;
+  tokensA: number;
+  tokensB: number;
+  delta: number;
+  deltaPercent: number;
+}
+
+/** Waste comparison summary */
+export interface WasteComparison {
+  countA: number;
+  countB: number;
+  totalTokensA: number;
+  totalTokensB: number;
+}
+
+/** Compaction comparison summary */
+export interface CompactionComparison {
+  countA: number;
+  countB: number;
+}
+
+/** Full comparison result between two sessions */
+export interface ComparisonResult {
+  sessionA: { id: string; project: string; messageCount: number };
+  sessionB: { id: string; project: string; messageCount: number };
+  totalA: number;
+  totalB: number;
+  totalDelta: number;
+  totalDeltaPercent: number;
+  categoryDeltas: CategoryDelta[];
+  waste: WasteComparison;
+  compaction: CompactionComparison;
+  insights: string[];
 }
 
 /** Full analysis result from the orchestrator */
