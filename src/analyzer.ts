@@ -130,5 +130,6 @@ export async function analyzeSession(
     recommendations,
     calibration,
     configData,
+    messages,
   };
 }

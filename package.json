@@ -1,6 +1,6 @@
 {
   "name": "claude-crusts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Break down your Claude Code context window into the 6 CRUSTS categories. See what's eating your tokens.",
   "type": "module",
   "bin": {
@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    ".claude/commands/crusts.md",
     "README.md",
     "LICENSE",
     "ROADMAP.md"

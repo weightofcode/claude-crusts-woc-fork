@@ -23,6 +23,7 @@ import type {
   RecommendationReport,
   ContextHealth,
 } from './types.ts';
+import type { LostAnalysis, CompactionLoss, LostItem } from './lost-detector.ts';
 
 // ---------------------------------------------------------------------------
 // Color scheme
@@ -101,7 +102,8 @@ function fmtTokens(tokens: number): string {
  * @returns Colored bar string
  */
 function renderBar(pct: number, width: number, color: (s: string) => string): string {
-  const filled = Math.round((pct / 100) * width);
+  const raw = Math.round((pct / 100) * width);
+  const filled = pct >= 1 ? Math.max(1, raw) : 0;
   const empty = width - filled;
   return color('\u2588'.repeat(filled)) + chalk.dim('\u2591'.repeat(empty));
 }
@@ -740,4 +742,140 @@ export function renderComparison(result: ComparisonResult): void {
 
   console.log(chalk.bold('\u255a' + '\u2550'.repeat(w) + '\u255d'));
   console.log();
+}
+
+// ---------------------------------------------------------------------------
+// renderLost — what was lost in compaction
+// ---------------------------------------------------------------------------
+
+/** Type label for lost items */
+const LOST_TYPE_LABEL: Record<string, string> = {
+  file_read: 'File Read',
+  conversation: 'Conversation',
+  tool_result: 'Tool Result',
+  instruction: 'Instruction',
+};
+
+/** Color for lost item type */
+const LOST_TYPE_COLOR: Record<string, (s: string) => string> = {
+  file_read: chalk.blue,
+  conversation: chalk.cyan,
+  tool_result: chalk.magenta,
+  instruction: chalk.yellow,
+};
+
+/**
+ * Render the lost content analysis for a session.
+ *
+ * Shows each compaction event with its lost items grouped by type,
+ * followed by a grand total summary.
+ *
+ * @param analysis - Lost analysis result
+ */
+export function renderLost(analysis: LostAnalysis): void {
+  const w = 66;
+
+  // Header
+  console.log();
+  console.log(chalk.bold('\u2554' + '\u2550'.repeat(w) + '\u2557'));
+  lostLine('  What Was Lost in Compaction', w, chalk.bold);
+  lostLine(`  Session: ${analysis.sessionId.slice(0, 8)} | ${analysis.compactionCount} compaction event(s)`, w, chalk.dim);
+  console.log(chalk.bold('\u2560' + '\u2550'.repeat(w) + '\u2563'));
+
+  // Each compaction event
+  for (const event of analysis.events) {
+    renderCompactionEvent(event, w);
+  }
+
+  // Grand total
+  const pct = analysis.grandTotalBefore > 0
+    ? ((analysis.grandTotalLost / analysis.grandTotalBefore) * 100).toFixed(1)
+    : '0';
+  console.log(chalk.bold('\u2560' + '\u2550'.repeat(w) + '\u2563'));
+  lostLine('', w);
+  lostLine(`  Total: ${analysis.grandTotalLost.toLocaleString()} tokens lost out of ${analysis.grandTotalBefore.toLocaleString()} pre-compaction (${pct}%)`, w, chalk.yellow);
+  lostLine('', w);
+  console.log(chalk.bold('\u255a' + '\u2550'.repeat(w) + '\u255d'));
+  console.log();
+}
+
+/**
+ * Render a single line inside the lost report box.
+ *
+ * Pads the plaintext to exactly `w` visible characters, then applies
+ * the optional color function so ANSI codes don't affect alignment.
+ *
+ * @param text - Plaintext content (will be padded/truncated to w)
+ * @param w - Box inner width
+ * @param color - Optional chalk color function
+ */
+function lostLine(text: string, w: number, color?: (s: string) => string): void {
+  const padded = text.length > w ? text.slice(0, w) : text.padEnd(w);
+  const content = color ? color(padded) : padded;
+  console.log(chalk.bold('\u2551') + content + chalk.bold('\u2551'));
+}
+
+/**
+ * Render a single compaction event within the lost report.
+ *
+ * @param event - Single compaction loss event
+ * @param w - Box inner width
+ */
+function renderCompactionEvent(event: CompactionLoss, w: number): void {
+  lostLine('', w);
+
+  // Event header
+  lostLine(`  Compaction #${event.eventNumber} (at message #${event.boundaryIndex + 1})`, w, chalk.bold);
+  lostLine(`  ${event.tokensBefore.toLocaleString()} \u2192 ${event.tokensAfter.toLocaleString()} tokens (\u2212${event.tokensDropped.toLocaleString()} dropped)`, w, chalk.dim);
+
+  if (event.summaryExcerpt) {
+    const maxExcerpt = w - 16; // room for '  Summary: "' + '..."'
+    lostLine(`  Summary: "${event.summaryExcerpt.slice(0, maxExcerpt)}..."`, w, chalk.dim);
+  }
+
+  console.log(chalk.bold('\u2551') + '  ' + chalk.dim('\u2500'.repeat(w - 4)) + '  ' + chalk.bold('\u2551'));
+
+  if (event.lostItems.length === 0) {
+    lostLine('  All content appears preserved in the summary.', w, chalk.green);
+    return;
+  }
+
+  // Group by type
+  const grouped: Record<string, LostItem[]> = {};
+  for (const item of event.lostItems) {
+    const arr = grouped[item.type];
+    if (arr) {
+      arr.push(item);
+    } else {
+      grouped[item.type] = [item];
+    }
+  }
+
+  for (const type of ['file_read', 'conversation', 'tool_result', 'instruction'] as const) {
+    const items = grouped[type];
+    if (!items || items.length === 0) continue;
+
+    const label = LOST_TYPE_LABEL[type] ?? type;
+    const color = LOST_TYPE_COLOR[type] ?? chalk.white;
+    const groupTokens = items.reduce((sum, item) => sum + item.tokens, 0);
+    lostLine(`  ${label}s (${items.length}) \u2014 ~${groupTokens.toLocaleString()} tokens`, w, color);
+
+    // Show up to 8 items per type
+    const shown = items.slice(0, 8);
+    for (const item of shown) {
+      const suffix = ` ~${item.tokens.toLocaleString()} #${item.messageRange[0] + 1}`;
+      const maxDesc = w - 4 - suffix.length; // 4 for leading spaces
+      const desc = item.description.length > maxDesc
+        ? item.description.slice(0, maxDesc - 1) + '\u2026'
+        : item.description;
+      const line = `    ${desc}${' '.repeat(Math.max(0, maxDesc - desc.length))}${suffix}`;
+      lostLine(line, w);
+    }
+    if (items.length > 8) {
+      lostLine(`    ... and ${items.length - 8} more`, w, chalk.dim);
+    }
+  }
+
+  // Per-event total
+  lostLine(`  Lost: ~${event.totalLostTokens.toLocaleString()} tokens identified`, w, chalk.dim);
 }

@@ -421,4 +421,5 @@ export interface AnalysisResult {
   recommendations: RecommendationReport;
   calibration: CalibrationComparison[] | null;
   configData: ConfigData;
+  messages: SessionMessage[];
 }

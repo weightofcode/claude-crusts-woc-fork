@@ -21,6 +21,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # claude code internals
 .claude/
+!.claude/commands/
+!.claude/commands/crusts.md
 
 # project-private docs and scripts
 PROJECT_BRIEF.md

@@ -18,7 +18,11 @@ import type {
   FixPrompts,
 } from './types.ts';
 
-/** Auto-compaction triggers at 80% of context window */
+/**
+ * Auto-compaction triggers at ~80% of context window.
+ * Approximate — actual trigger is at turn boundaries, so heavy turns
+ * (e.g. multiple file reads) can overshoot to ~85-90% before compaction fires.
+ */
 const COMPACTION_THRESHOLD = 0.80;
 
 /** Context health thresholds */
@@ -113,6 +117,7 @@ function recommendDuplicateFiles(waste: WasteItem[]): Recommendation[] {
 function recommendCompactCommand(
   waste: WasteItem[],
   breakdown: CrustsBreakdown,
+  messages: SessionMessage[],
 ): Recommendation[] {
   const ctx = breakdown.currentContext ?? breakdown;
   if (ctx.total_tokens < breakdown.context_limit * 0.5) return [];
@@ -133,7 +138,6 @@ function recommendCompactCommand(
   }
 
   // Accumulate waste from the oldest block forward
-  const startMsg = breakdown.currentContext?.startIndex ?? 0;
   let cutoff = wasteWithRanges[0]!.message_range![1];
   let savings = 0;
   for (const w of wasteWithRanges) {
@@ -143,11 +147,18 @@ function recommendCompactCommand(
     }
   }
 
+  const startMsg = breakdown.currentContext?.startIndex ?? 0;
+  const keepFrom = cutoff + startMsg;
+  const focusHint = extractCompactFocusHint(messages, breakdown.messages, keepFrom);
+  const action = focusHint
+    ? `/compact focus on ${focusHint}`
+    : '/compact';
+
   return [{
     priority: 1,
-    action: `/compact focus: retain messages after #${cutoff + startMsg + 1}`,
+    action,
     impact: savings,
-    reason: `Messages #${startMsg + 1}-${cutoff + startMsg + 1} contain ${wasteWithRanges.length} waste items. Compacting this range frees ~${savings.toLocaleString()} tokens.`,
+    reason: `${wasteWithRanges.length} waste items in older messages. Compacting frees ~${savings.toLocaleString()} tokens while retaining recent work.`,
   }];
 }
 
@@ -503,7 +514,7 @@ export function generateRecommendations(
   messages: SessionMessage[],
 ): RecommendationReport {
   const recommendations: Recommendation[] = [
-    ...recommendCompactCommand(waste, breakdown),
+    ...recommendCompactCommand(waste, breakdown, messages),
     ...recommendCompactionPrediction(breakdown),
     ...recommendDuplicateFiles(waste),
     ...recommendTopConsumers(breakdown, waste, configData, messages),
@@ -568,17 +579,19 @@ function extractDuplicateFiles(waste: WasteItem[]): DupeFileInfo[] {
  * @param breakdown - CRUSTS breakdown
  * @param waste - Detected waste items
  * @param configData - Config data from scanner
+ * @param messages - Raw session messages for context extraction
  * @returns Fix prompts ready for pasting
  */
 export function generateFixPrompts(
   breakdown: CrustsBreakdown,
   waste: WasteItem[],
   configData: ConfigData,
+  messages: SessionMessage[],
 ): FixPrompts {
   return {
     sessionPrompt: buildSessionPrompt(breakdown, waste),
     claudeMdSnippet: buildClaudeMdSnippet(breakdown, waste, configData),
-    compactCommand: buildCompactCommand(breakdown, waste),
+    compactCommand: buildCompactCommand(breakdown, waste, messages),
   };
 }
 
@@ -663,8 +676,81 @@ function buildClaudeMdSnippet(
   return sections.join('\n');
 }
 
+/** Tool names whose input contains a file_path or path field */
+const FILE_TOOLS = new Set(['Read', 'FileReadTool', 'Write', 'FileWriteTool', 'Edit', 'FileEditTool', 'NotebookEdit']);
+
 /**
- * Build a specific /compact command with message range.
+ * Extract a content-based focus hint for /compact from recent messages.
+ *
+ * Looks at messages after `keepFromIndex` to find filenames being worked on
+ * and user task context, then builds a natural language focus string.
+ *
+ * @param messages - Raw session messages
+ * @param classified - Classified messages
+ * @param keepFromIndex - Index of first message to keep (scan these for context)
+ * @returns Focus hint string or null if not enough context
+ */
+function extractCompactFocusHint(
+  messages: SessionMessage[],
+  classified: ClassifiedMessage[],
+  keepFromIndex: number,
+): string | null {
+  const recentFiles = new Set<string>();
+  const userPhrases: string[] = [];
+
+  // Scan messages we want to KEEP for context about current work
+  for (let i = keepFromIndex; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg) continue;
+    const content = msg.message?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      // Extract filenames from file tool calls
+      if (block.type === 'tool_use' && block.name && FILE_TOOLS.has(block.name)) {
+        const filePath = (block.input?.file_path as string | undefined)
+          ?? (block.input?.path as string | undefined);
+        if (filePath) {
+          const parts = filePath.replace(/\\/g, '/').split('/');
+          const name = parts[parts.length - 1];
+          if (name) recentFiles.add(name);
+        }
+      }
+
+      // Extract user task descriptions (short user text messages)
+      if (block.type === 'text' && block.text && msg.type === 'user') {
+        const text = block.text.trim();
+        if (text.length > 5 && text.length < 200) {
+          userPhrases.push(text);
+        }
+      }
+    }
+  }
+
+  const parts: string[] = [];
+
+  // Add file context (up to 5 most recently seen files)
+  if (recentFiles.size > 0) {
+    const files = [...recentFiles].slice(-5);
+    parts.push(`the ${files.join(', ')} changes`);
+  }
+
+  // Add task context from the last meaningful user message
+  if (userPhrases.length > 0) {
+    const lastPhrase = userPhrases[userPhrases.length - 1]!;
+    // Extract a short task summary — first sentence or first 80 chars
+    const sentence = lastPhrase.split(/[.!?\n]/)[0]?.trim() ?? '';
+    if (sentence.length > 10 && sentence.length <= 80) {
+      parts.push(sentence.toLowerCase());
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return parts.join(' and ');
+}
+
+/**
+ * Build a specific /compact command with content-based focus hint.
  *
  * @param breakdown - CRUSTS breakdown
  * @param waste - Detected waste items
@@ -673,6 +759,7 @@ function buildClaudeMdSnippet(
 function buildCompactCommand(
   breakdown: CrustsBreakdown,
   waste: WasteItem[],
+  messages: SessionMessage[],
 ): string | null {
   const ctx = breakdown.currentContext ?? breakdown;
 
@@ -685,14 +772,18 @@ function buildCompactCommand(
     .sort((a, b) => a.message_range![0] - b.message_range![0]);
 
   if (wasteWithRanges.length > 0) {
-    const startMsg = breakdown.currentContext?.startIndex ?? 0;
     let cutoff = wasteWithRanges[0]!.message_range![1];
     for (const w of wasteWithRanges) {
       if (w.message_range![0] <= cutoff + 10) {
         cutoff = Math.max(cutoff, w.message_range![1]);
       }
     }
-    return `/compact focus: retain messages after #${cutoff + startMsg + 1}`;
+    const startMsg = breakdown.currentContext?.startIndex ?? 0;
+    const keepFrom = cutoff + startMsg;
+    const focusHint = extractCompactFocusHint(messages, breakdown.messages, keepFrom);
+    return focusHint
+      ? `/compact focus on ${focusHint}`
+      : '/compact';
   }
 
   // General compact if context is high

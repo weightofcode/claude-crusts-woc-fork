@@ -11,14 +11,16 @@ import { writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { discoverSessions } from './scanner.ts';
+import { discoverSessions, parseSession } from './scanner.ts';
 import { analyzeSession, gatherConfigData } from './analyzer.ts';
 import { setVerbose } from './classifier.ts';
 import { runCalibration, renderCalibrationComparison } from './calibrator.ts';
 import { compareSessions } from './comparator.ts';
 import { generateSessionReport, generateComparisonReport } from './html-report.ts';
 import { generateSessionReportMd, generateComparisonReportMd } from './md-report.ts';
-import { renderAnalysis, renderTimeline, renderList, renderWaste, renderFix, renderComparison } from './renderer.ts';
+import { analyzeLostContent } from './lost-detector.ts';
+import { startWatch } from './watcher.ts';
+import { renderAnalysis, renderTimeline, renderList, renderWaste, renderFix, renderComparison, renderLost } from './renderer.ts';
 import { generateFixPrompts } from './recommender.ts';
 import type { SessionInfo } from './types.ts';
 
@@ -27,7 +29,7 @@ const program = new Command();
 program
   .name('claude-crusts')
   .description('Break down your Claude Code context window into the 6 CRUSTS categories')
-  .version('0.2.0')
+  .version('0.3.0')
   .option('--path <path>', 'Custom path to JSONL session files')
   .option('--json', 'Output as JSON instead of formatted tables')
   .option('--project <name>', 'Filter by project name')
@@ -55,7 +57,8 @@ program
     }
 
     if (globals.json) {
-      console.log(JSON.stringify(result, null, 2));
+      const { messages: _msgs, ...jsonResult } = result;
+      console.log(JSON.stringify(jsonResult, null, 2));
       return;
     }
 
@@ -178,7 +181,7 @@ program
       return;
     }
 
-    const fix = generateFixPrompts(result.breakdown, result.waste, result.configData);
+    const fix = generateFixPrompts(result.breakdown, result.waste, result.configData, result.messages);
 
     if (globals.json) {
       console.log(JSON.stringify(fix, null, 2));
@@ -227,6 +230,68 @@ program
     }
 
     renderComparison(comparison);
+  });
+
+program
+  .command('lost [session-id]')
+  .description('Show what was lost during compaction')
+  .action(async (sessionId: string | undefined, _options: unknown, cmd: Command) => {
+    const globals = cmd.optsWithGlobals();
+    const session = resolveSession(sessionId, globals.path, globals.project);
+    if (!session) return;
+
+    const result = await analyzeSession(session.path, session.id, session.project);
+    if (!result) {
+      console.error(chalk.red('No messages found in session.'));
+      return;
+    }
+
+    if (result.breakdown.compactionEvents.length === 0) {
+      console.log(chalk.green('\n  No compaction events in this session.'));
+      console.log(chalk.dim('  Use `claude-crusts analyze` to see the full context breakdown.\n'));
+      return;
+    }
+
+    // Parse raw messages for the lost detector
+    const rawMessages = await parseSession(session.path);
+
+    const lostAnalysis = analyzeLostContent(
+      rawMessages,
+      result.breakdown.messages,
+      result.breakdown.compactionEvents,
+      result.sessionId,
+      result.project,
+    );
+
+    if (!lostAnalysis) {
+      console.log(chalk.green('\n  No compaction events in this session.\n'));
+      return;
+    }
+
+    if (globals.json) {
+      console.log(JSON.stringify(lostAnalysis, null, 2));
+      return;
+    }
+
+    renderLost(lostAnalysis);
+  });
+
+program
+  .command('watch [session-id]')
+  .description('Live-monitor a session as it runs')
+  .option('--interval <ms>', 'Polling interval in milliseconds', '2000')
+  .action(async (sessionId: string | undefined, options: { interval?: string }, cmd: Command) => {
+    const globals = cmd.optsWithGlobals();
+    const session = resolveSession(sessionId, globals.path, globals.project);
+    if (!session) return;
+
+    const intervalMs = parseInt(options.interval ?? '2000', 10);
+    if (isNaN(intervalMs) || intervalMs < 200) {
+      console.error(chalk.red('Interval must be at least 200ms.'));
+      return;
+    }
+
+    await startWatch(session, intervalMs, !!globals.json);
   });
 
 program
@@ -282,11 +347,12 @@ program
     } else {
       // Single session report
       if (globals.json) {
-        console.log(JSON.stringify(result, null, 2));
+        const { messages: _msgs, ...jsonResult } = result;
+        console.log(JSON.stringify(jsonResult, null, 2));
         return;
       }
 
-      const fix = generateFixPrompts(result.breakdown, result.waste, result.configData);
+      const fix = generateFixPrompts(result.breakdown, result.waste, result.configData, result.messages);
       content = format === 'md'
         ? generateSessionReportMd(result, fix)
         : generateSessionReport(result, fix);

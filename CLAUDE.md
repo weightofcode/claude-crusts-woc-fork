@@ -8,6 +8,8 @@ You are working on **claude-crusts** (the npm package name and CLI binary). The 
 
 Binary name: `claude-crusts`. Entrypoint: `src/index.ts`.
 
+**Slash command**: `/crusts` inside Claude Code (via `.claude/commands/crusts.md`) — runs analyze and gives actionable advice.
+
 ```
 claude-crusts analyze [session-id]              — 6-category breakdown + waste detection + recommendations
 claude-crusts waste [session-id]                — Detailed waste report with per-file analysis + top 5 consumers
@@ -15,13 +17,16 @@ claude-crusts fix [session-id]                  — 3 pasteable prompt blocks (s
 claude-crusts timeline [session-id]             — Message-by-message context growth with compaction markers
 claude-crusts list                              — All discovered sessions (age, size, project)
 claude-crusts compare <session-a> <session-b>   — Side-by-side comparison with per-category deltas + insights
-claude-crusts report [session-id]               — Generate standalone HTML report (shareable, dark theme)
+claude-crusts lost [session-id]                 — What was lost during compaction (files, conversations, tools, instructions)
+claude-crusts watch [session-id]                — Live-monitor a session with compact dashboard
+claude-crusts report [session-id]               — Generate standalone report (HTML or Markdown)
 claude-crusts calibrate                         — Cross-reference against /context output
 ```
 
 Global flags: `--json`, `--project <name>`, `--path <path>`, `--verbose`
 Subcommand flags: `--until <n>` on analyze/waste/timeline
 Report flags: `--format <html|md>` (default: html), `--compare <id>` for comparison report, `--output <path>` for custom file path
+Watch flags: `--interval <ms>` polling interval (default: 2000)
 
 ## Rules
 
@@ -48,6 +53,8 @@ scanner.ts → classifier.ts → waste-detector.ts → recommender.ts → render
                   ↑                                                     ↑
               analyzer.ts (orchestrates)                         calibrator.ts
                                                                 comparator.ts
+                                                                lost-detector.ts
+                                                                watcher.ts
                                                                 html-report.ts
                                                                 md-report.ts
 ```
@@ -57,18 +64,21 @@ Supporting: `types.ts`, `built-in-tools.ts`
 ### File Responsibilities
 
 - **types.ts**: All shared types and interfaces (including ComparisonResult, CategoryDelta)
-- **index.ts**: CLI entrypoint with 8 Commander.js commands
+- **index.ts**: CLI entrypoint with 10 Commander.js commands
 - **analyzer.ts**: Pipeline orchestrator, project path decoding
 - **scanner.ts**: Session discovery, JSONL streaming, config readers
 - **classifier.ts**: Core engine — classification, token estimation, compaction detection, derived overhead, auto-trim
 - **waste-detector.ts**: 6 waste detection rules (edit-aware)
 - **recommender.ts**: 7 recommendation patterns + fix prompt generator
-- **renderer.ts**: 6 render functions (dashboard, timeline, list, waste, fix, comparison)
+- **renderer.ts**: 7 render functions (dashboard, timeline, list, waste, fix, comparison, lost). Bar chart guarantees ≥1 filled block for categories ≥1%
 - **calibrator.ts**: /context parser, calibration storage, comparison
 - **comparator.ts**: Cross-session comparison engine with 5 auto-insight rules
 - **html-report.ts**: Standalone HTML report generator (session + comparison modes)
 - **md-report.ts**: Standalone Markdown report generator (session + comparison modes)
+- **lost-detector.ts**: Compaction loss analysis — reconstructs what was dropped. Detects tool_use ID filenames and replaces with "Agent sub-task result". Extracts meaningful descriptions from agent/tool results
+- **watcher.ts**: Live session monitor with compact dashboard, inline compaction line (flash effect on new compaction, settles to yellow), category labels `C R U Sys T St`
 - **built-in-tools.ts**: 40 built-in tool schemas, total 9,055 tokens
+- **.claude/commands/crusts.md**: Custom slash command — runs `npx claude-crusts analyze --json` and gives actionable advice
 
 ## Key Technical Decisions
 
@@ -110,7 +120,7 @@ Supporting: `types.ts`, `built-in-tools.ts`
 | `OVERSIZED_SYSTEM_THRESHOLD` | waste-detector.ts | 1,500 | System prompt token warning |
 | `CACHE_OVERHEAD_THRESHOLD` | waste-detector.ts | 0.6 | Cache read ratio warning (60%) |
 | `RESOLUTION_LOOKBACK` | waste-detector.ts | 10 | Messages to scan for resolved exchanges |
-| `COMPACTION_THRESHOLD` | recommender.ts | 0.80 | Auto-compaction trigger (80%) |
+| `COMPACTION_THRESHOLD` | recommender.ts | 0.80 | Auto-compaction trigger (~80%, actual fires at turn boundaries so heavy turns overshoot to ~85-90%) |
 | `HEALTH_THRESHOLDS` | recommender.ts | 50/70/85 | healthy/warming/hot/critical |
 | `MCP_TOKENS_PER_TOOL` | scanner.ts | 0 | MCP tools loaded on-demand |
 | `TOTAL_BUILTIN_TOOL_TOKENS` | built-in-tools.ts | 9,055 | Sum of 40 tool schemas |

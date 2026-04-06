@@ -11,10 +11,10 @@
 ║                                                                ║
 ║  C  Conversation        7,616 tkns   (5.3%)  █░░░░░░░░░░░░░░░░ ║
 ║  R  Retrieved          35,996 tkns  (25.1%)  ████░░░░░░░░░░░░░ ║
-║  U  User Input          4,217 tkns   (2.9%)  ░░░░░░░░░░░░░░░░░ ║
-║  S  System                  0 tkns   (0.0%)  ░░░░░░░░░░░░░░░░░ ║
-║  T  Tools              93,779 tkns  (65.3%)  ███████████░░░░░░ ║
-║  S  State/Memory        1,899 tkns   (1.3%)  ░░░░░░░░░░░░░░░░░ ║
+║  U  User Input          4,217 tkns   (2.9%)  █░░░░░░░░░░░░░░░░ ║
+║  S  System              7,319 tkns   (5.1%)  █░░░░░░░░░░░░░░░░ ║
+║  T  Tools              86,460 tkns  (60.3%)  ██████████░░░░░░░ ║
+║  S  State/Memory        1,899 tkns   (1.3%)  █░░░░░░░░░░░░░░░░ ║
 ║  ──────────────────────────────────────────────────────────────║
 ║  TOTAL: 143,507 / 200,000 tokens (71.8%)                       ║
 ║  FREE:  56,493 tokens                                          ║
@@ -73,14 +73,43 @@ claude-crusts timeline
 # 5. Analyze any past session — Claude Code forgot it, CRUSTS didn't
 claude-crusts analyze <session-id>
 
-# 6. Compare two sessions side by side
+# 6. See what was lost during auto-compaction
+claude-crusts lost
+
+# 7. Live-monitor a session as it runs
+claude-crusts watch
+
+# 8. Compare two sessions side by side
 claude-crusts compare <session-a> <session-b>
 
-# 7. Generate a shareable HTML report
+# 9. Generate a shareable report (HTML or Markdown)
 claude-crusts report
 ```
 
-## Commands
+## Use Inside Claude Code
+
+The easiest way to use CRUSTS — type this inside any Claude Code session:
+
+```
+/crusts
+```
+
+That's it. Claude Code runs the analysis and tells you what to do — which files to stop re-reading, whether to `/compact` now or wait, and the exact command to paste. No copy-paste, no switching terminals.
+
+This works automatically when you clone or install claude-crusts, because the slash command lives at `.claude/commands/crusts.md` in the repo.
+
+**Two ways to use CRUSTS — they complement each other:**
+
+| | `/crusts` inside Claude Code | CLI in a separate terminal |
+|--|--|--|
+| **Best for** | Quick check + immediate action | Deep analysis, monitoring, forensics |
+| **Token cost** | Uses some context tokens for Claude to process the JSON | Zero — doesn't touch your session |
+| **Features** | Analyze + actionable advice | All 10 commands: watch, lost, timeline, compare, report, etc. |
+| **When to use** | Mid-session: "should I compact?" | Separate terminal: detailed views, live monitoring, past session forensics |
+
+Use `/crusts` when you want a quick answer without leaving your session. Use the CLI when you want the full picture without spending tokens on it.
+
+## CLI Commands
 
 ### `claude-crusts analyze [session-id]`
 
@@ -116,7 +145,7 @@ claude-crusts waste e5f6a7b8       # any past session
 
 ── RECOMMENDATIONS ──
 
-P2 /compact focus: retain messages after #920
+P2 /compact focus on the renderer.ts, classifier.ts, types.ts changes
    Estimated savings: ~11,159 tokens
 
 P3 Top 5 context consumers:
@@ -182,7 +211,8 @@ CRUSTS Fix — Session a1b2c3d4
 3. Run this command now:
 
 ┌────────────────────────────────────────────────────────────────┐
-│ /compact focus: retain messages after #920                     │
+│ /compact focus on the renderer.ts, classifier.ts, types.ts     │
+│ changes                                                        │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -196,6 +226,54 @@ Message-by-message view of how your context grew over the session, including com
 claude-crusts timeline
 claude-crusts timeline --json
 ```
+
+### `claude-crusts lost [session-id]`
+
+**The feature nobody else offers.** When Claude Code auto-compacts, it silently drops context. `/context` doesn't tell you what was lost. `ccusage` doesn't either. CRUSTS does.
+
+For each compaction event, `lost` reconstructs what existed before and what survived in the summary, then reports what disappeared:
+
+```bash
+claude-crusts lost                     # most recent session
+claude-crusts lost a1b2c3d4            # specific session
+claude-crusts lost --json              # machine-readable output
+```
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  What Was Lost in Compaction                                     ║
+║  Session: 841f980f | 5 compaction event(s)                       ║
+╠══════════════════════════════════════════════════════════════════╣
+║                                                                  ║
+║  Compaction #1 (at message #420)                                 ║
+║  167,040 → 31,069 tokens (−135,971 dropped)                     ║
+║  ──────────────────────────────────────────────────────────────  ║
+║  File Reads (2) — ~2,311 tokens                                  ║
+║    File read: PROJECT_BRIEF.md                         ~2,180 #15║
+║    File read: CLAUDE_MD.md                               ~131 #14║
+║  ──────────────────────────────────────────────────────────────  ║
+║  Total: 44,596 tokens lost out of 851,734 pre-compaction (5.2%) ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+Lost content is categorized into:
+- **Lost file reads** — files that were in context but aren't mentioned in the compaction summary
+- **Lost conversations** — user/assistant exchanges that disappeared
+- **Lost tool results** — tool outputs that were consumed but dropped
+- **Lost instructions** — system-level content or user instructions that vanished
+
+### `claude-crusts watch [session-id]`
+
+Live-monitor a Claude Code session as it runs. The terminal updates in real-time as the JSONL file grows — useful for learning how context fills up, debugging waste, and knowing when compaction is about to hit.
+
+```bash
+claude-crusts watch                    # watch the most recent session
+claude-crusts watch a1b2c3d4           # watch a specific session
+claude-crusts watch --interval 1000    # faster polling (1s)
+claude-crusts watch --json             # newline-delimited JSON output
+```
+
+Shows a compact single-screen dashboard with usage bar, category percentages, waste count, compaction prediction, and last message preview. When a compaction fires during the watch, a highlighted line appears inside the dashboard showing the token drop and how long ago it happened. Press Ctrl+C for a summary of what happened during the watch.
 
 ### `claude-crusts list`
 
@@ -284,7 +362,7 @@ CRUSTS reads Claude Code's session files directly from disk. **No API calls. No 
 2. CRUSTS parses each message, classifies it into a CRUSTS category, and estimates token cost
 3. Compaction boundaries are detected from actual markers in the JSONL — not heuristics
 4. Waste detection finds patterns like duplicate file reads, unused tool schemas, and stale context
-5. Recommendations tell you exactly what to do: which files to stop re-reading, when to `/compact`, and specific message ranges to target
+5. Recommendations tell you exactly what to do: which files to stop re-reading, when to `/compact`, and content-based focus hints for what to preserve
 
 **Past sessions work.** Claude Code forgets everything when a session ends. The JSONL files remain on disk permanently. CRUSTS can analyze sessions from days or weeks ago — useful for understanding why a past session hit compaction unexpectedly or consumed more tokens than expected.
 
@@ -325,7 +403,9 @@ Claude Code's built-in `/context` command gives you a snapshot of your current c
 | Compaction prediction | Shows autocompact buffer size | Calculates messages until compaction triggers |
 | History | Current snapshot only | Full session timeline with compaction markers |
 | Cross-session | None | Side-by-side comparison with auto-generated insights |
-| Shareable reports | None | Standalone HTML file — screenshot for LinkedIn, share with team |
+| Compaction detail | None — context is just gone | Reconstructs what was lost: files, conversations, tools, instructions |
+| Live monitoring | None | Real-time dashboard with compaction alerts (`claude-crusts watch`) |
+| Shareable reports | None | Standalone HTML/Markdown file — screenshot for LinkedIn, share with team |
 | Cost | Free (built-in) | Free (offline, zero API calls) |
 
 CRUSTS doesn't replace `/context` — it complements it. Use `/context` for a quick check, use CRUSTS for deep analysis and actionable fixes.
@@ -335,9 +415,9 @@ CRUSTS doesn't replace `/context` — it complements it. Use `/context` for a qu
 CRUSTS answers the question behind the number — not just "how full is my context?" but **"so what?"**
 
 - **"I'm at 75% context — but what's eating it?"** → CRUSTS breakdown shows Tools at 65%, Retrieved at 25%, Conversation at 5%. The problem isn't your chat — it's tool schemas and redundant file reads.
-- **"Why does auto-compaction keep surprising me?"** → CRUSTS predicts when it will trigger based on compaction thresholds from community analysis of the leaked source: "auto-compaction in ~48 messages."
+- **"Why does auto-compaction keep surprising me?"** → CRUSTS predicts when it will trigger based on the ~80% threshold from community analysis of the leaked source: "auto-compaction in ~48 messages." (Note: auto-compaction triggers around 80% but checks at turn boundaries — a heavy turn with multiple file reads can overshoot to ~85-90% before it fires.)
 - **"Why is my quota depleting so fast?"** → CRUSTS flags cache overhead: when cache re-reads exceed 90% of input tokens, most of your quota is re-sending the same content every message — even at the 90% cache discount.
-- **"What can I actually DO about it?"** → Run `claude-crusts fix` — it generates three pasteable blocks: one to paste into your current session (tells Claude which files to stop re-reading), one to add to your CLAUDE.md (prevents the same waste next time), and one /compact command with the exact message range to target.
+- **"What can I actually DO about it?"** → Run `claude-crusts fix` — it generates three pasteable blocks: one to paste into your current session (tells Claude which files to stop re-reading), one to add to your CLAUDE.md (prevents the same waste next time), and one /compact command with a content-based focus hint describing what to preserve.
 
 If you've ever been surprised by auto-compaction wiping your carefully built context, CRUSTS helps you see it coming and act before it happens.
 
@@ -361,14 +441,14 @@ Every CRUSTS recommendation is rule-based (no LLM needed), derived from your ses
      → Avoid re-reading files that haven't changed.
 ```
 
-### Specific /compact command with message range
+### Specific /compact command with content-based focus
 
 ```
-💡 P2  /compact focus: retain messages after #920
+💡 P2  /compact focus on the renderer.ts, classifier.ts, types.ts changes
        Estimated savings: ~11,159 tokens
 ```
 
-This is a command you paste directly into Claude Code. The message range is calculated from where the duplicate reads and resolved conversations are concentrated.
+This is a command you paste directly into Claude Code. CRUSTS looks at the files you've been working on recently and builds a natural language focus hint, so the compaction LLM knows what to preserve.
 
 ### Unused tool detection
 
@@ -470,6 +550,9 @@ scanner.ts → classifier.ts → waste-detector.ts → recommender.ts → render
             analyzer.ts (orchestrates)                          calibrator.ts
                                                                 comparator.ts
                                                                 html-report.ts
+                                                                md-report.ts
+                                                                lost-detector.ts
+                                                                watcher.ts
 ```
 
 See [ROADMAP.md](ROADMAP.md) for planned features and contribution opportunities.
