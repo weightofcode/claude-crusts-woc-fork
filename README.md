@@ -183,9 +183,9 @@ CRUSTS Fix — Session a1b2c3d4
 │ Important: these files are already in your context from        │
 │ earlier reads. Do NOT re-read them. Reference your earlier     │
 │ reads instead:                                                 │
-│ - renderer.ts (already read, at messages #5, #160, #180)   │
+│ - renderer.ts (already read, at messages #5, #160, #180)       │
 │ - classifier.ts (already read, at messages #4, #38, #41, #46)  │
-│ - recommender.ts (already read, at messages #149, #210)    |
+│ - recommender.ts (already read, at messages #149, #210)        │
 │                                                                │
 │ If you need to check something in these files, say "based on   │
 │ [filename] that you already read" instead of reading the file  │
@@ -245,7 +245,7 @@ claude-crusts lost --json              # machine-readable output
 ║  Session: 841f980f | 5 compaction event(s)                       ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                  ║
-║  Compaction #1 (at message #420)                               ║
+║  Compaction #1 (at message #420)                                 ║
 ║  167,040 -> 31,069 tokens (-135,971 dropped)                     ║
 ║  ──────────────────────────────────────────────────────────────  ║
 ║  File Reads (2) -- ~2,311 tokens                                 ║
