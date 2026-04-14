@@ -5,7 +5,7 @@
 ```
 ╔════════════════════════════════════════════════════════════════╗
 ║  CRUSTS Context Window Analysis                                ║
-║  Session: a1b2c3d4 | Model: claude                             ║
+║  Session: a1b2c3d4 | Model: claude-sonnet-4-6                  ║
 ║  Messages: 426                                                 ║
 ╠════════════════════════════════════════════════════════════════╣
 ║                                                                ║
@@ -403,6 +403,8 @@ claude-crusts calibrate
 # Then paste your /context output and press Enter twice
 ```
 
+Also flags stale built-in tool baselines: if Claude Code adds or removes built-in tools, `calibrate` will warn when CRUSTS's internal tool-schema constant drifts more than 5% from `/context`'s reported "System tools" total.
+
 ### `claude-crusts trend`
 
 Track how your context usage changes across sessions. Shows a sparkline, per-session averages, direction (improving/worsening/flat), and recent session history. Records are saved automatically each time you run `analyze`.
@@ -675,11 +677,9 @@ scanner.ts -> classifier.ts -> waste-detector.ts -> recommender.ts -> renderer.t
                                                                    md-report.ts
 ```
 
-See [ROADMAP.md](ROADMAP.md) for planned features and contribution opportunities.
-
 ## Feedback
 
-Have an idea for a feature? Found a bug? [Open an issue](https://github.com/Abinesh-L/claude-crusts/issues) — feature requests are just as welcome as bug reports. I'm actively developing CRUSTS and prioritize based on what people actually need. Check the [roadmap](ROADMAP.md) for what's planned, or suggest something completely new.
+Have an idea for a feature? Found a bug? [Open an issue](https://github.com/Abinesh-L/claude-crusts/issues) — feature requests are just as welcome as bug reports. I'm actively developing CRUSTS and prioritize based on what people actually need.
 
 ## License
 

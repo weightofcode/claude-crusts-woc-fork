@@ -2,7 +2,19 @@
  * Hardcoded list of Claude Code's ~40 built-in tools with schema sizes.
  *
  * Token estimates calibrated against /context ground truth (~9,100 total).
- * Average ~228 tokens per tool schema.
+ * Average ~228 tokens per tool schema. Baseline derived from the
+ * March 2026 Claude Code source leak.
+ *
+ * How to re-verify when Claude Code adds/removes tools:
+ *   1. Open a fresh Claude Code session with no MCP servers loaded.
+ *   2. Run /context and capture the "System tools" token count.
+ *   3. Run `claude-crusts calibrate` and paste the /context output.
+ *   4. Compare the reported "System tools" value against
+ *      TOTAL_BUILTIN_TOOL_TOKENS below. The calibrator flags the
+ *      delta under the "Tools" row.
+ *   5. If the delta exceeds ~5%, update the per-tool estimates here.
+ *      The `getBuiltInToolList` helper in scanner.ts tells you which
+ *      tool names the current session actually invoked.
  */
 
 /** Built-in tool definition with estimated schema token cost */

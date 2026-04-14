@@ -25,6 +25,7 @@ import { enableHooks, disableHooks, hooksStatus } from './hooks.ts';
 import { renderAnalysis, renderTimeline, renderList, renderWaste, renderFix, renderComparison, renderLost, renderTrend } from './renderer.ts';
 import { generateFixPrompts } from './recommender.ts';
 import { loadTrendHistory, summarizeTrend } from './trend.ts';
+import { VERSION } from './version.ts';
 import type { SessionInfo } from './types.ts';
 
 const program = new Command();
@@ -32,7 +33,7 @@ const program = new Command();
 program
   .name('claude-crusts')
   .description('Break down your Claude Code context window into the 6 CRUSTS categories')
-  .version('0.5.0')
+  .version(VERSION)
   .option('--path <path>', 'Custom path to JSONL session files')
   .option('--json', 'Output as JSON instead of formatted tables')
   .option('--project <name>', 'Filter by project name')

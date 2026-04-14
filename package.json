@@ -10,14 +10,14 @@
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target node --format esm",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "bun run typecheck && bun run build"
+    "test": "bun test",
+    "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "files": [
     "dist",
     ".claude/commands/crusts.md",
     "README.md",
-    "LICENSE",
-    "ROADMAP.md"
+    "LICENSE"
   ],
   "keywords": [
     "claude-code",

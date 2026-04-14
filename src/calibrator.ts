@@ -27,6 +27,7 @@ import type {
   CalibrationComparison,
   CrustsBreakdown,
 } from './types.ts';
+import { TOTAL_BUILTIN_TOOL_TOKENS } from './built-in-tools.ts';
 
 /** Directory where CRUSTS stores its own data */
 export const CRUSTS_DIR = join(homedir(), '.claude-crusts');
@@ -323,6 +324,23 @@ export function renderCalibrationComparison(comparisons: CalibrationComparison[]
   if (totalActual > 0) {
     const overallAccuracy = 100 - Math.abs(((totalEst - totalActual) / totalActual) * 100);
     const accColor = overallAccuracy >= 90 ? chalk.green : overallAccuracy >= 75 ? chalk.yellow : chalk.red;
-    console.log(`  Overall accuracy: ${accColor(overallAccuracy.toFixed(1) + '%')}\n`);
+    console.log(`  Overall accuracy: ${accColor(overallAccuracy.toFixed(1) + '%')}`);
   }
+
+  // Built-in tool schema baseline check: if /context's "System tools"
+  // diverges from our constant by >5%, the per-tool estimates in
+  // built-in-tools.ts are stale and should be updated.
+  const toolsRow = comparisons.find((c) => c.category === 'Tools');
+  if (toolsRow && toolsRow.contextActual > 0) {
+    const delta = ((TOTAL_BUILTIN_TOOL_TOKENS - toolsRow.contextActual) / toolsRow.contextActual) * 100;
+    if (Math.abs(delta) > 5) {
+      console.log();
+      console.log(chalk.yellow(`  !  Built-in tool baseline looks stale:`));
+      console.log(chalk.dim(`     TOTAL_BUILTIN_TOOL_TOKENS = ${TOTAL_BUILTIN_TOOL_TOKENS.toLocaleString()}`));
+      console.log(chalk.dim(`     /context System tools     = ${toolsRow.contextActual.toLocaleString()}`));
+      console.log(chalk.dim(`     Delta: ${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`));
+      console.log(chalk.dim(`     Update per-tool estimates in src/built-in-tools.ts`));
+    }
+  }
+  console.log();
 }
