@@ -36,13 +36,30 @@
 Fully offline. Zero API calls. Zero token cost.
 
 **What it does:**
+- **Interactive TUI** — the fastest way to use CRUSTS. Run `claude-crusts tui` for a REPL shell that auto-selects your latest session, offers Tab completion for commands and session IDs, and lets you run every command without memorizing flags.
 - **Breaks down your context** into 6 categories — see exactly where your tokens are going
 - **Detects waste** — duplicate file reads, unused tool schemas, stale content
 - **Gives you the fix** — run `claude-crusts fix` to get three pasteable blocks: one for your current session, one for your CLAUDE.md, and one /compact command. All generated from your data, no LLM needed.
 - **Works on past sessions** — Claude Code forgets everything when you exit. The JSONL logs don't. Analyze any session from days or weeks ago.
 - **Tracks trends** — see how your context usage changes across sessions with sparklines and direction detection
-- **Interactive TUI** — REPL shell with Tab completion and clipboard copy to browse sessions, run commands, switch and compare without leaving the app
 - **Hook integration** — opt-in one-line health summary after every Claude Code response
+
+## The Fastest Way to Start
+
+If you're new to CRUSTS, skip the flag-heavy CLI and just run:
+
+```bash
+claude-crusts tui
+```
+
+This drops you into an interactive shell that:
+- Auto-selects your most recent Claude Code session
+- Shows a session list so you can switch with `select <id>` (Tab-completes session IDs)
+- Runs every analysis command by name (`analyze`, `waste`, `fix`, `lost`, `trend`, …) — no flags to remember
+- Copies fix blocks straight to your clipboard with `copy 1|2|3`
+- Type `help` for the full command list, `quit` to exit
+
+The rest of this README documents the standalone CLI for scripting, CI, and advanced use. But for day-to-day use, `tui` is the recommended entry point.
 
 ## Installation
 
@@ -60,39 +77,41 @@ bun install -g claude-crusts
 
 ## Quick Start
 
+Start with the TUI — the other commands are here for scripting, CI, and power users.
+
 ```bash
-# 1. See what's in your context window right now
+# 1. Interactive shell — recommended entry point. All commands in one session.
+claude-crusts tui
+
+# 2. See what's in your context window right now
 claude-crusts analyze
 
-# 2. Find wasted tokens with specific file names and recommendations
+# 3. Find wasted tokens with specific file names and recommendations
 claude-crusts waste
 
-# 3. Get pasteable prompts to fix the waste — no LLM needed
+# 4. Get pasteable prompts to fix the waste — no LLM needed
 claude-crusts fix
 
-# 4. Watch token growth over time with compaction markers
+# 5. Watch token growth over time with compaction markers
 claude-crusts timeline
 
-# 5. Analyze any past session — Claude Code forgot it, CRUSTS didn't
+# 6. Analyze any past session — Claude Code forgot it, CRUSTS didn't
 claude-crusts analyze <session-id>
 
-# 6. See what was lost during auto-compaction
+# 7. See what was lost during auto-compaction
 claude-crusts lost
 
-# 7. Live-monitor a session as it runs
+# 8. Live-monitor a session as it runs
 claude-crusts watch
 
-# 8. Compare two sessions side by side
+# 9. Compare two sessions side by side
 claude-crusts compare <session-a> <session-b>
 
-# 9. Generate a shareable report (HTML or Markdown)
+# 10. Generate a shareable report (HTML or Markdown)
 claude-crusts report
 
-# 10. Track trends across sessions
+# 11. Track trends across sessions
 claude-crusts trend
-
-# 11. Interactive shell — all commands in one session
-claude-crusts tui
 
 # 12. Quick health check (one line)
 claude-crusts status
@@ -115,7 +134,7 @@ This works automatically when you clone or install claude-crusts, because the sl
 
 **Two ways to use CRUSTS — they complement each other:**
 
-| | `/crusts` inside Claude Code | CLI in a separate terminal |
+| | `/crusts` inside Claude Code | CLI / TUI in a separate terminal |
 |--|--|--|
 | **Best for** | Quick check + immediate action | Deep analysis, monitoring, forensics |
 | **Token cost** | Uses some context tokens for Claude to process the JSON | Zero — doesn't touch your session |
@@ -125,6 +144,52 @@ This works automatically when you clone or install claude-crusts, because the sl
 Use `/crusts` when you want a quick answer without leaving your session. Use the CLI when you want the full picture without spending tokens on it.
 
 ## CLI Commands
+
+### `claude-crusts tui [session-id]`
+
+Interactive REPL shell. Browse sessions, run analysis commands, switch sessions, and compare — all without leaving the app. Features Tab completion for both commands and session IDs, plus clipboard copy for fix blocks.
+
+```bash
+claude-crusts tui                    # launch, auto-selects latest session
+claude-crusts tui a1b2c3d4           # launch with a specific session pre-selected
+```
+
+Once inside, type commands like you would in a shell:
+
+```
+  CRUSTS Interactive Shell
+  Type a command, or "help" for a list of commands.
+
+  ID        Age   Size     Project
+  a1b2c3d4  2m    1.2 MB   my-project
+  e5f6a7b8  1h    856 KB   another-project
+  ...
+
+  Auto-selected most recent session: a1b2c3d4 (my-project)
+  Use "select <id>" to switch, or type a command.
+
+crusts:a1b2c3d4> analyze             # full 6-category breakdown
+crusts:a1b2c3d4> waste               # waste detection report
+crusts:a1b2c3d4> fix                 # pasteable fix prompts
+  Tip: use "copy 1", "copy 2", or "copy 3" to copy a block to clipboard.
+
+crusts:a1b2c3d4> copy 2              # copy CLAUDE.md snippet to clipboard
+  Copied CLAUDE.md snippet to clipboard.
+
+crusts:a1b2c3d4> timeline            # message-by-message growth
+crusts:a1b2c3d4> lost                # what was lost in compaction
+crusts:a1b2c3d4> status              # one-line health check
+crusts:a1b2c3d4> compare e5f6a7b8    # compare with another session
+crusts:a1b2c3d4> trend               # cross-session trends
+crusts:a1b2c3d4> list                # show all sessions
+crusts:a1b2c3d4> select e5f6       # Tab completes session IDs
+crusts:a1b2c3d4> help                # show available commands
+crusts:a1b2c3d4> quit                # exit
+```
+
+**Tab completion** works for both commands and session IDs. Type `sel` + Tab to complete `select`, then type the first few characters of a session ID and press Tab to auto-fill it. Works with `select` and `compare` commands.
+
+**Clipboard copy** lets you quickly grab fix blocks after running `fix`. Each block is numbered — use `copy 1` (session prompt), `copy 2` (CLAUDE.md snippet), or `copy 3` (/compact command). Works on Windows (`clip`), macOS (`pbcopy`), and Linux (`xclip`/`xsel`).
 
 ### `claude-crusts analyze [session-id]`
 
@@ -350,52 +415,6 @@ claude-crusts trend --json           # machine-readable
 ```
 
 History is stored at `~/.claude-crusts/history.jsonl` (append-only, deduped by session ID).
-
-### `claude-crusts tui [session-id]`
-
-Interactive REPL shell. Browse sessions, run analysis commands, switch sessions, and compare — all without leaving the app. Features Tab completion for both commands and session IDs, plus clipboard copy for fix blocks.
-
-```bash
-claude-crusts tui                    # launch, auto-selects latest session
-claude-crusts tui a1b2c3d4           # launch with a specific session pre-selected
-```
-
-Once inside, type commands like you would in a shell:
-
-```
-  CRUSTS Interactive Shell
-  Type a command, or "help" for a list of commands.
-
-  ID        Age   Size     Project
-  a1b2c3d4  2m    1.2 MB   my-project
-  e5f6a7b8  1h    856 KB   another-project
-  ...
-
-  Auto-selected most recent session: a1b2c3d4 (my-project)
-  Use "select <id>" to switch, or type a command.
-
-crusts:a1b2c3d4> analyze             # full 6-category breakdown
-crusts:a1b2c3d4> waste               # waste detection report
-crusts:a1b2c3d4> fix                 # pasteable fix prompts
-  Tip: use "copy 1", "copy 2", or "copy 3" to copy a block to clipboard.
-
-crusts:a1b2c3d4> copy 2              # copy CLAUDE.md snippet to clipboard
-  Copied CLAUDE.md snippet to clipboard.
-
-crusts:a1b2c3d4> timeline            # message-by-message growth
-crusts:a1b2c3d4> lost                # what was lost in compaction
-crusts:a1b2c3d4> status              # one-line health check
-crusts:a1b2c3d4> compare e5f6a7b8    # compare with another session
-crusts:a1b2c3d4> trend               # cross-session trends
-crusts:a1b2c3d4> list                # show all sessions
-crusts:a1b2c3d4> select e5f6       # Tab completes session IDs
-crusts:a1b2c3d4> help                # show available commands
-crusts:a1b2c3d4> quit                # exit
-```
-
-**Tab completion** works for both commands and session IDs. Type `sel` + Tab to complete `select`, then type the first few characters of a session ID and press Tab to auto-fill it. Works with `select` and `compare` commands.
-
-**Clipboard copy** lets you quickly grab fix blocks after running `fix`. Each block is numbered — use `copy 1` (session prompt), `copy 2` (CLAUDE.md snippet), or `copy 3` (/compact command). Works on Windows (`clip`), macOS (`pbcopy`), and Linux (`xclip`/`xsel`).
 
 ### `claude-crusts status [session-id]`
 

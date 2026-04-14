@@ -235,7 +235,7 @@ export function renderAnalysis(
 
   // Recommendations (dashboard shows top 3 single-line actions)
   if (report.recommendations.length > 0) {
-    console.log(chalk.bold('\u2551') + chalk.green('  \ud83d\udca1 RECOMMENDATIONS:') + ' '.repeat(62 - 22) + chalk.bold('\u2551'));
+    console.log(chalk.bold('\u2551') + chalk.green('  RECOMMENDATIONS:') + ' '.repeat(62 - 18) + chalk.bold('\u2551'));
     const dashboardRecs = report.recommendations
       .filter((r) => !r.action.includes('\n'))
       .slice(0, 3);
