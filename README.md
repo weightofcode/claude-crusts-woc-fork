@@ -98,8 +98,8 @@ Three commands cover 90% of day-to-day use. You can stop reading right there if 
 
 ```bash
 # 1. SELF-HEAL — install the hook. Your context silently self-heals from
-#    now on: when usage crosses the threshold, CRUSTS injects a targeted
-#    /compact focus advisory into Claude's next turn. Zero user action.
+#    now on: when usage crosses the threshold, CRUSTS writes the perfect
+#    /compact focus command and surfaces it in Claude's reply. You paste.
 claude-crusts hooks auto-inject enable
 
 # 2. ACTIVE FIX — write .claudeignore + CLAUDE.md rules for you.
@@ -154,7 +154,7 @@ claude-crusts tui
 Fully offline. Zero API calls. Zero token cost.
 
 **Core capabilities:**
-- **Self-healing context** — `hooks auto-inject enable` installs a hook that injects a session-specific `/compact focus` into Claude's next turn when you cross the configured threshold. No copy-paste, no user action.
+- **Auto-inject** — `hooks auto-inject enable` installs a hook that writes a session-specific `/compact focus` command and surfaces it in Claude's next reply when you cross the configured threshold. You paste, Claude runs it, context drops. Every fire logged to `~/.claude-crusts/auto-inject.log` for audit.
 - **Active optimization** — `optimize --apply` writes `.claudeignore` and CLAUDE.md rules for you, with confirmation prompts and backups under `~/.claude-crusts/backups/`.
 - **6-category context breakdown** — Conversation, Retrieved, User, System, Tools, State/Memory. See exactly where your tokens are going.
 - **Waste detection** — duplicate file reads, unused tool schemas, stale content, resolved exchanges, cache overhead, unused tool results.
@@ -176,7 +176,7 @@ Fully offline. Zero API calls. Zero token cost.
 - Interactive: [`tui`](#claude-crusts-tui-session-id)
 - Analysis: [`analyze`](#claude-crusts-analyze-session-id) · [`waste`](#claude-crusts-waste-session-id) · [`fix`](#claude-crusts-fix-session-id) · [`optimize`](#claude-crusts-optimize-session-id) · [`models`](#claude-crusts-models-session-id) · [`timeline`](#claude-crusts-timeline-session-id) · [`lost`](#claude-crusts-lost-session-id) · [`diff`](#claude-crusts-diff-session-id---from-n---to-n) · [`compare`](#claude-crusts-compare-session-a-session-b) · [`trend`](#claude-crusts-trend) · [`status`](#claude-crusts-status-session-id)
 - Live: [`watch`](#claude-crusts-watch-session-id) · [`report`](#claude-crusts-report-session-id) · [`list`](#claude-crusts-list)
-- Self-healing + active fix: [`hooks auto-inject`](#claude-crusts-hooks-auto-inject-enabledisablestatus) · [`optimize --apply`](#claude-crusts-optimize-session-id)
+- Auto-fix + active rules: [`hooks auto-inject`](#claude-crusts-hooks-auto-inject-subcommand) · [`optimize --apply`](#claude-crusts-optimize-session-id)
 - Claude Code integration: [`hooks`](#claude-crusts-hooks-enabledisablestatus) · [`statusline`](#claude-crusts-statusline-installuninstallstatus) · [`calibrate`](#claude-crusts-calibrate)
 - Install management: [`doctor`](#claude-crusts-doctor)
 - Measurement harness: [`bench compact`](#claude-crusts-bench-compact-session-id) · [`bench compare`](#claude-crusts-bench-compare-ajson-bjson) · [`bench reextract`](#claude-crusts-bench-reextract-resultjson)
@@ -746,16 +746,18 @@ claude-crusts hooks status           # check if enabled
 
 Not everyone wants context info after every response — this is strictly opt-in.
 
-### `claude-crusts hooks auto-inject enable|disable|status`
+### `claude-crusts hooks auto-inject <subcommand>`
 
-**Your context self-heals.** When enabled, crusts installs a `UserPromptSubmit` hook on Claude Code. Before every user prompt, crusts silently analyses the session; if usage has crossed the configured threshold (default 70%) and the last injection was more than `minGapMs` ago (default 5 min), it prepends a targeted advisory to Claude's context — including a `/compact focus "..."` tuned to the top waste items in **this** session.
+**CRUSTS writes your next `/compact` for you.** When enabled, crusts installs a `UserPromptSubmit` hook on Claude Code. Before every user prompt, crusts silently analyses the session; if usage has crossed the configured threshold (default 70%) and the last injection was more than `minGapMs` ago (default 5 min), it prepends a targeted advisory to Claude's context — including a `/compact focus "..."` tuned to the top waste items in **this** session.
 
-Claude reads the advisory as part of the turn and can act on it immediately — no copy-paste, no terminal switching, no user action.
+Claude reads the advisory and surfaces the `/compact focus` command in its reply — you paste and run it. CRUSTS never executes `/compact` directly; that stays your call. Every fire is logged to `~/.claude-crusts/auto-inject.log` so you can audit exactly when the hook fired and what advisory it generated.
 
 ```bash
 claude-crusts hooks auto-inject enable       # opt in, installs UserPromptSubmit hook
 claude-crusts hooks auto-inject disable      # opt out, removes the hook
 claude-crusts hooks auto-inject status       # show install + enabled + last-injection-at state
+claude-crusts hooks auto-inject log          # view injection history (newest first)
+claude-crusts hooks auto-inject log --limit 5 --verbose  # last 5 fires with full advisory text
 ```
 
 Tune via `~/.claude-crusts/config.json`:
@@ -772,9 +774,11 @@ Tune via `~/.claude-crusts/config.json`:
 
 **Safety guarantees:**
 - Opt-in. Disabled by default.
+- Advisory-only. CRUSTS writes the `/compact` command; Claude surfaces it; you decide whether to run. CRUSTS never executes `/compact` directly.
 - Fire-and-forget. Any error in crusts is swallowed so the hook can never block your prompt.
 - Per-session min-gap prevents spam on long sessions.
 - Only emits when the threshold is crossed — quiet on healthy sessions.
+- Every injection logged for audit — `hooks auto-inject log` shows what the hook said, when, and at what usage percent.
 
 ### `claude-crusts statusline install|uninstall|status`
 
