@@ -11,6 +11,7 @@ import { writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
+import Table from 'cli-table3';
 import { discoverSessions, parseSession } from './scanner.ts';
 import { analyzeSession, gatherConfigData } from './analyzer.ts';
 import { setVerbose, classifySession } from './classifier.ts';
@@ -22,7 +23,8 @@ import { analyzeLostContent } from './lost-detector.ts';
 import { startWatch } from './watcher.ts';
 import { startTui } from './tui.ts';
 import { enableHooks, disableHooks, hooksStatus, enableAutoInject, disableAutoInject, autoInjectStatus } from './hooks.ts';
-import { runAutoInject } from './auto-inject.ts';
+import { runAutoInject, readInjectionLog } from './auto-inject.ts';
+import type { InjectionLogEntry } from './auto-inject.ts';
 import {
   installStatusline,
   uninstallStatusline,
@@ -573,6 +575,22 @@ autoInjectCmd
   .description('Show whether auto-inject is installed and enabled')
   .action(() => autoInjectStatus());
 
+autoInjectCmd
+  .command('log')
+  .description('Show the injection history (newest first) from ~/.claude-crusts/auto-inject.log')
+  .option('--limit <n>', 'Only show the N most recent entries', '20')
+  .option('--verbose', 'Also print the full advisory text for each entry', false)
+  .action((options: { limit: string; verbose: boolean }, cmd: Command) => {
+    const globals = cmd.optsWithGlobals();
+    const limit = parseInt(options.limit, 10);
+    const entries = readInjectionLog(Number.isFinite(limit) && limit > 0 ? limit : undefined);
+    if (globals.json) {
+      console.log(JSON.stringify(entries, null, 2));
+      return;
+    }
+    renderInjectionLog(entries, Boolean(options.verbose));
+  });
+
 program
   .command('auto-inject', { hidden: true })
   .description('Internal: hook target for UserPromptSubmit (reads JSON on stdin, emits additionalContext when threshold crossed)')
@@ -814,6 +832,49 @@ program
   });
 
 program.parse();
+
+/**
+ * Render the auto-inject injection log as a table, newest first. When
+ * `verbose` is set, also print the full advisory text below each row so
+ * users can audit exactly what Claude saw at each fire.
+ */
+function renderInjectionLog(entries: InjectionLogEntry[], verbose: boolean): void {
+  console.log();
+  console.log(chalk.bold('  Auto-inject injection log'));
+  console.log(chalk.dim('  ' + '━'.repeat(56)));
+  if (entries.length === 0) {
+    console.log(chalk.dim('  No injections logged yet.'));
+    console.log(chalk.dim('  The hook logs each fire to ~/.claude-crusts/auto-inject.log.'));
+    console.log();
+    return;
+  }
+  const table = new Table({
+    head: ['Time (UTC)', 'Session', 'Usage', 'Reclaimable'],
+    style: { head: ['cyan'] },
+  });
+  for (const entry of entries) {
+    const time = entry.ts.replace('T', ' ').slice(0, 19);
+    const sessionPrefix = entry.sessionId.slice(0, 8);
+    const usage = `${entry.usagePercent.toFixed(1)}%`;
+    const reclaim = entry.reclaimableTokens > 0
+      ? `${entry.reclaimableTokens.toLocaleString()} tkns`
+      : chalk.dim('—');
+    table.push([time, sessionPrefix, usage, reclaim]);
+  }
+  console.log(table.toString());
+  if (verbose) {
+    for (const entry of entries) {
+      console.log();
+      console.log(chalk.dim(`  ── ${entry.ts} (${entry.sessionId.slice(0, 8)}) ──`));
+      for (const line of entry.advisoryText.split('\n')) {
+        console.log(`  ${line}`);
+      }
+    }
+  }
+  console.log();
+  console.log(chalk.dim(`  ${entries.length} injection(s) shown.`));
+  console.log();
+}
 
 /**
  * Resolve a session by ID prefix or find the latest one.

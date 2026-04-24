@@ -1,5 +1,8 @@
-import { describe, test, expect } from 'bun:test';
-import { shouldInject, buildInjectionText } from '../src/auto-inject.ts';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { shouldInject, buildInjectionText, writeInjectionLog, readInjectionLog } from '../src/auto-inject.ts';
 import type { CrustsBreakdown, WasteItem } from '../src/types.ts';
 import { DEFAULT_AUTO_INJECT } from '../src/config.ts';
 
@@ -134,5 +137,102 @@ describe('buildInjectionText', () => {
     const text = buildInjectionText(breakdownAt(80), waste, 80);
     expect(text).toContain('2,300');
     expect(text).toContain('reclaimable');
+  });
+});
+
+describe('writeInjectionLog / readInjectionLog', () => {
+  let sandbox: string;
+  let savedOverride: string | undefined;
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'crusts-inject-log-'));
+    savedOverride = process.env.CRUSTS_INJECT_LOG_DIR;
+    // Redirect the log path to a temp dir so tests never touch the developer's
+    // real `~/.claude-crusts/auto-inject.log`.
+    process.env.CRUSTS_INJECT_LOG_DIR = sandbox;
+  });
+
+  afterEach(() => {
+    if (savedOverride === undefined) {
+      delete process.env.CRUSTS_INJECT_LOG_DIR;
+    } else {
+      process.env.CRUSTS_INJECT_LOG_DIR = savedOverride;
+    }
+    try { rmSync(sandbox, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  test('writes and reads back a single entry', () => {
+    writeInjectionLog({
+      ts: '2026-04-24T05:39:52.343Z',
+      sessionId: 'abc12345-ef67-89ab-cdef-0123456789ab',
+      usagePercent: 51.8,
+      reclaimableTokens: 15084,
+      advisoryText: '[claude-crusts advisory] test',
+    });
+    const entries = readInjectionLog();
+    expect(entries.length).toBe(1);
+    expect(entries[0]).toMatchObject({
+      sessionId: 'abc12345-ef67-89ab-cdef-0123456789ab',
+      usagePercent: 51.8,
+      reclaimableTokens: 15084,
+    });
+  });
+
+  test('multiple entries are returned newest-first', () => {
+    writeInjectionLog({ ts: '2026-04-24T05:00:00.000Z', sessionId: 'old-sid', usagePercent: 70, reclaimableTokens: 0, advisoryText: 'old' });
+    writeInjectionLog({ ts: '2026-04-24T06:00:00.000Z', sessionId: 'new-sid', usagePercent: 80, reclaimableTokens: 0, advisoryText: 'new' });
+    const entries = readInjectionLog();
+    expect(entries[0]!.sessionId).toBe('new-sid');
+    expect(entries[1]!.sessionId).toBe('old-sid');
+  });
+
+  test('limit restricts the returned count', () => {
+    for (let i = 0; i < 5; i++) {
+      writeInjectionLog({
+        ts: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
+        sessionId: `s${i}`,
+        usagePercent: 70,
+        reclaimableTokens: 0,
+        advisoryText: `advisory-${i}`,
+      });
+    }
+    const entries = readInjectionLog(3);
+    expect(entries.length).toBe(3);
+    // Newest first — so the last-written entry (i=4) should come first
+    expect(entries[0]!.sessionId).toBe('s4');
+  });
+
+  test('corrupt lines are silently skipped, valid ones still return', () => {
+    const logFile = join(sandbox, 'auto-inject.log');
+    writeFileSync(
+      logFile,
+      [
+        'not-json-at-all',
+        JSON.stringify({ ts: '2026-01-01T00:00:00Z', sessionId: 's1', usagePercent: 70, reclaimableTokens: 0, advisoryText: '' }),
+        '{}', // valid JSON but missing required fields
+        '',   // empty line
+        JSON.stringify({ ts: '2026-01-02T00:00:00Z', sessionId: 's2', usagePercent: 75, reclaimableTokens: 100, advisoryText: '' }),
+      ].join('\n'),
+      'utf-8',
+    );
+    const entries = readInjectionLog();
+    expect(entries.length).toBe(2);
+    // Newest-first reversal: s2 wins
+    expect(entries[0]!.sessionId).toBe('s2');
+    expect(entries[1]!.sessionId).toBe('s1');
+  });
+
+  test('missing log file returns empty array (no crash)', () => {
+    // Fresh sandbox has no file written yet.
+    const entries = readInjectionLog();
+    expect(entries).toEqual([]);
+  });
+
+  test('append preserves earlier entries across writes', () => {
+    writeInjectionLog({ ts: '2026-01-01T00:00:00Z', sessionId: 'one', usagePercent: 70, reclaimableTokens: 0, advisoryText: '' });
+    writeInjectionLog({ ts: '2026-01-02T00:00:00Z', sessionId: 'two', usagePercent: 70, reclaimableTokens: 0, advisoryText: '' });
+    writeInjectionLog({ ts: '2026-01-03T00:00:00Z', sessionId: 'three', usagePercent: 70, reclaimableTokens: 0, advisoryText: '' });
+    const entries = readInjectionLog();
+    expect(entries.map((e) => e.sessionId)).toEqual(['three', 'two', 'one']);
   });
 });
